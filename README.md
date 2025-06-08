@@ -9,7 +9,7 @@ Add `ash_postgres_belongs_to_index` to your list of dependencies in `mix.exs`:
 ```elixir
 def deps do
   [
-    {:ash_postgres_belongs_to_index, "~> 0.1.0"}
+    {:ash_postgres_belongs_to_index, "~> 0.2.0"}
   ]
 end
 ```
@@ -42,8 +42,8 @@ For the example above, the following index will be generated:
 
 ```elixir
 postgres do
-  custom_indexes do
-    index [:user_id], name: "post_belongs_to_user_index"
+  references do
+    reference :user, index?: true
   end
 end
 ```

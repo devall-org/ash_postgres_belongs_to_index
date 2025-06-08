@@ -8,20 +8,19 @@ defmodule AshPostgresBelongsToIndex.Transformer do
   def after?(_), do: false
 
   def transform(dsl_state) do
-    table = dsl_state |> Transformer.get_option([:postgres], :table)
     except_list = Transformer.get_option(dsl_state, [:postgres_belongs_to_index], :except, [])
 
     dsl_state
     |> get_belongs_toes()
     |> Enum.reject(fn %BelongsTo{name: name} -> name in except_list end)
-    |> Enum.reduce(dsl_state, fn %BelongsTo{name: name, source_attribute: attr}, dsl_state ->
-      {:ok, index} =
-        Transformer.build_entity(AshPostgres.DataLayer, [:postgres, :custom_indexes], :index,
-          fields: [attr],
-          name: "#{table}_belongs_to_#{name}_index"
+    |> Enum.reduce(dsl_state, fn %BelongsTo{name: name}, dsl_state ->
+      {:ok, reference} =
+        Transformer.build_entity(AshPostgres.DataLayer, [:postgres, :references], :reference,
+          relationship: name,
+          index?: true
         )
 
-      dsl_state |> Transformer.add_entity([:postgres, :custom_indexes], index, type: :append)
+      dsl_state |> Transformer.add_entity([:postgres, :references], reference, type: :append)
     end)
     |> then(fn dsl_state -> {:ok, dsl_state} end)
   end

@@ -2,7 +2,7 @@ defmodule AshPostgresBelongsToIndex do
   @postgres_belongs_to_index %Spark.Dsl.Section{
     name: :postgres_belongs_to_index,
     describe: """
-    Automatically adds AshPostgres custom indexes for `belongs_to` relationships in Ash resources.
+    Automatically adds AshPostgres references with index?: true for `belongs_to` relationships in Ash resources.
     """,
     examples: [
       """
