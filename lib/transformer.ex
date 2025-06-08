@@ -10,9 +10,14 @@ defmodule AshPostgresBelongsToIndex.Transformer do
   def transform(dsl_state) do
     except_list = Transformer.get_option(dsl_state, [:postgres_belongs_to_index], :except, [])
 
+    manual_references =
+      Transformer.get_entities(dsl_state, [:postgres, :references])
+      |> Enum.map(& &1.relationship)
+
     dsl_state
     |> get_belongs_toes()
     |> Enum.reject(fn %BelongsTo{name: name} -> name in except_list end)
+    |> Enum.reject(fn %BelongsTo{name: name} -> name in manual_references end)
     |> Enum.reduce(dsl_state, fn %BelongsTo{name: name}, dsl_state ->
       {:ok, reference} =
         Transformer.build_entity(AshPostgres.DataLayer, [:postgres, :references], :reference,
