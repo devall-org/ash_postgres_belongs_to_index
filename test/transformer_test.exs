@@ -171,6 +171,13 @@ defmodule AshPostgresBelongsToIndex.TransformerTest do
 
       assert user_ref.index? == true
       assert depot_ref.index? == true
+
+      # Should also create single-column custom indexes for multitenant FK enforcement
+      user_single_index = Enum.find(custom_indexes, &(&1.fields == [:user_id]))
+      depot_single_index = Enum.find(custom_indexes, &(&1.fields == [:depot_id]))
+
+      assert user_single_index != nil
+      assert depot_single_index != nil
     end
 
     test "respects except list configuration" do
@@ -337,6 +344,10 @@ defmodule AshPostgresBelongsToIndex.TransformerTest do
 
       # Only the original
       assert length(company_indexes) == 1
+
+      # Should also create single-column custom index for user FK enforcement
+      user_single_index = Enum.find(custom_indexes, &(&1.fields == [:user_id]))
+      assert user_single_index != nil
     end
 
     test "handles non-multitenant resources correctly" do
@@ -412,8 +423,14 @@ defmodule AshPostgresBelongsToIndex.TransformerTest do
       company_ref = Enum.find(references, &(&1.relationship == :company))
       assert company_ref == nil
 
-      # Should not create any custom indexes since no manual references
-      assert length(custom_indexes) == 0
+      # Should create single-column custom indexes for multitenant FK enforcement
+      assert length(custom_indexes) == 2
+
+      user_single_index = Enum.find(custom_indexes, &(&1.fields == [:user_id]))
+      depot_single_index = Enum.find(custom_indexes, &(&1.fields == [:depot_id]))
+
+      assert user_single_index != nil
+      assert depot_single_index != nil
     end
 
     test "creates custom indexes for multitenant resource with manual references" do
@@ -432,9 +449,16 @@ defmodule AshPostgresBelongsToIndex.TransformerTest do
       depot_ref = Enum.find(references, &(&1.relationship == :depot))
       assert depot_ref.index? == true
 
-      # Should create custom indexes for user (has manual ref but no index?)
-      user_index = Enum.find(custom_indexes, &(&1.fields == [:company_id, :user_id]))
-      assert user_index != nil
+      # Should create composite custom index for user (has manual ref but no index?)
+      user_composite_index = Enum.find(custom_indexes, &(&1.fields == [:company_id, :user_id]))
+      assert user_composite_index != nil
+
+      # Should also create single-column custom indexes for multitenant FK enforcement
+      user_single_index = Enum.find(custom_indexes, &(&1.fields == [:user_id]))
+      depot_single_index = Enum.find(custom_indexes, &(&1.fields == [:depot_id]))
+
+      assert user_single_index != nil
+      assert depot_single_index != nil
 
       # Company should be filtered out (company_id == tenant attribute)
       company_index =
@@ -460,9 +484,9 @@ defmodule AshPostgresBelongsToIndex.TransformerTest do
       assert user_index != nil
       assert user_index.fields == [:company_id, :user_id]
 
-      # Should not create simple indexes for FK that have manual references in multitenant
+      # Should also create single-column indexes for multitenant FK enforcement
       simple_user_index = Enum.find(custom_indexes, &(&1.fields == [:user_id]))
-      assert simple_user_index == nil
+      assert simple_user_index != nil
     end
   end
 

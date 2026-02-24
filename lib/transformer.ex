@@ -53,8 +53,16 @@ defmodule AshPostgresBelongsToIndex.Transformer do
          manual_references,
          multitenant_attr
        ) do
-    has_indexed_manual_reference?(name, manual_references) ||
-      has_existing_custom_index?(dsl_state, source_attr, multitenant_attr)
+    has_composite =
+      has_indexed_manual_reference?(name, manual_references) ||
+        has_custom_index_on?(dsl_state, build_index_fields(source_attr, multitenant_attr))
+
+    has_single = has_custom_index_on?(dsl_state, [source_attr])
+
+    case multitenant_attr do
+      nil -> has_composite || has_single
+      _tenant_attr -> has_composite && has_single
+    end
   end
 
   defp has_indexed_manual_reference?(relationship_name, manual_references) do
@@ -63,10 +71,10 @@ defmodule AshPostgresBelongsToIndex.Transformer do
     end)
   end
 
-  defp has_existing_custom_index?(dsl_state, fk_attribute, multitenant_attr) do
+  defp has_custom_index_on?(dsl_state, fields) do
     dsl_state
     |> Transformer.get_entities([:postgres, :custom_indexes])
-    |> Enum.any?(&index_covers_fk?(&1, fk_attribute, multitenant_attr))
+    |> Enum.any?(fn idx -> (idx.fields || []) == fields end)
   end
 
   defp add_missing_indexes(belongs_tos, dsl_state, manual_references, multitenant_attr) do
@@ -81,9 +89,44 @@ defmodule AshPostgresBelongsToIndex.Transformer do
          manual_references,
          multitenant_attr
        ) do
-    case has_manual_reference?(name, manual_references) do
-      true -> add_custom_index(dsl_state, source_attr, multitenant_attr)
-      false -> add_indexed_reference(dsl_state, name)
+    has_manual_ref = has_manual_reference?(name, manual_references)
+
+    dsl_state
+    |> ensure_composite_index(name, source_attr, multitenant_attr, has_manual_ref, manual_references)
+    |> ensure_single_column_index(source_attr, multitenant_attr)
+  end
+
+  defp ensure_composite_index(
+         dsl_state,
+         name,
+         source_attr,
+         multitenant_attr,
+         has_manual_ref,
+         manual_references
+       ) do
+    composite_fields = build_index_fields(source_attr, multitenant_attr)
+
+    already_has_composite =
+      has_custom_index_on?(dsl_state, composite_fields) ||
+        has_indexed_manual_reference?(name, manual_references)
+
+    if already_has_composite do
+      dsl_state
+    else
+      case has_manual_ref do
+        true -> add_custom_index(dsl_state, composite_fields)
+        false -> add_indexed_reference(dsl_state, name)
+      end
+    end
+  end
+
+  defp ensure_single_column_index(dsl_state, _source_attr, nil), do: dsl_state
+
+  defp ensure_single_column_index(dsl_state, source_attr, _tenant_attr) do
+    if has_custom_index_on?(dsl_state, [source_attr]) do
+      dsl_state
+    else
+      add_custom_index(dsl_state, [source_attr], all_tenants?: true)
     end
   end
 
@@ -91,15 +134,13 @@ defmodule AshPostgresBelongsToIndex.Transformer do
     Enum.any?(manual_references, fn ref -> ref.relationship == relationship_name end)
   end
 
-  defp add_custom_index(dsl_state, source_attr, multitenant_attr) do
-    index_fields = build_index_fields(source_attr, multitenant_attr)
-
+  defp add_custom_index(dsl_state, fields, opts \\ []) do
     {:ok, index} =
       Transformer.build_entity(
         AshPostgres.DataLayer,
         [:postgres, :custom_indexes],
         :index,
-        fields: index_fields
+        Keyword.merge([fields: fields], opts)
       )
 
     Transformer.add_entity(dsl_state, [:postgres, :custom_indexes], index, type: :append)
@@ -120,20 +161,4 @@ defmodule AshPostgresBelongsToIndex.Transformer do
 
   defp build_index_fields(source_attr, nil), do: [source_attr]
   defp build_index_fields(source_attr, tenant_attr), do: [tenant_attr, source_attr]
-
-  defp index_covers_fk?(index, fk_attribute, multitenant_attr) do
-    index_columns = index.fields || []
-
-    case multitenant_attr do
-      nil ->
-        index_columns == [fk_attribute]
-
-      tenant_attr when is_atom(tenant_attr) ->
-        # For multitenant resources, accept both composite [:tenant_id, :fk_id] and simple [:fk_id] indexes.
-        # Simple indexes are acceptable because PostgreSQL can efficiently use composite indexes 
-        # (like [:tenant_id, :fk_id]) for single-column queries on the first column, but existing
-        # simple indexes may have been created for specific query patterns or before multitenancy.
-        index_columns == [tenant_attr, fk_attribute] or index_columns == [fk_attribute]
-    end
-  end
 end
