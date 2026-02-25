@@ -178,6 +178,9 @@ defmodule AshPostgresBelongsToIndex.TransformerTest do
 
       assert user_single_index != nil
       assert depot_single_index != nil
+
+      assert user_single_index.all_tenants? == true
+      assert depot_single_index.all_tenants? == true
     end
 
     test "respects except list configuration" do
@@ -431,6 +434,9 @@ defmodule AshPostgresBelongsToIndex.TransformerTest do
 
       assert user_single_index != nil
       assert depot_single_index != nil
+
+      assert user_single_index.all_tenants? == true
+      assert depot_single_index.all_tenants? == true
     end
 
     test "creates custom indexes for multitenant resource with manual references" do
@@ -452,6 +458,7 @@ defmodule AshPostgresBelongsToIndex.TransformerTest do
       # Should create composite custom index for user (has manual ref but no index?)
       user_composite_index = Enum.find(custom_indexes, &(&1.fields == [:company_id, :user_id]))
       assert user_composite_index != nil
+      assert user_composite_index.all_tenants? == true
 
       # Should also create single-column custom indexes for multitenant FK enforcement
       user_single_index = Enum.find(custom_indexes, &(&1.fields == [:user_id]))
@@ -459,6 +466,9 @@ defmodule AshPostgresBelongsToIndex.TransformerTest do
 
       assert user_single_index != nil
       assert depot_single_index != nil
+
+      assert user_single_index.all_tenants? == true
+      assert depot_single_index.all_tenants? == true
 
       # Company should be filtered out (company_id == tenant attribute)
       company_index =
@@ -483,10 +493,179 @@ defmodule AshPostgresBelongsToIndex.TransformerTest do
       user_index = Enum.find(custom_indexes, &(&1.fields == [:company_id, :user_id]))
       assert user_index != nil
       assert user_index.fields == [:company_id, :user_id]
+      assert user_index.all_tenants? == true
 
       # Should also create single-column indexes for multitenant FK enforcement
       simple_user_index = Enum.find(custom_indexes, &(&1.fields == [:user_id]))
       assert simple_user_index != nil
+      assert simple_user_index.all_tenants? == true
+    end
+  end
+
+  describe "multitenancy index prefixing" do
+    test "creates single-column index when non-all_tenants index exists on same field" do
+      defmodule MultitenantWithNonAllTenantsIndex do
+        use Ash.Resource,
+          domain: nil,
+          data_layer: AshPostgres.DataLayer,
+          extensions: [AshPostgresBelongsToIndex],
+          validate_domain_inclusion?: false
+
+        postgres do
+          table "mt_with_non_all_tenants_index"
+          repo AshPostgresBelongsToIndex.Test.Support.TestResources.TestRepo
+
+          custom_indexes do
+            index [:depot_id]
+          end
+        end
+
+        multitenancy do
+          strategy :attribute
+          attribute :company_id
+        end
+
+        attributes do
+          uuid_primary_key :id
+        end
+
+        relationships do
+          belongs_to :company,
+                     AshPostgresBelongsToIndex.Test.Support.TestResources.CompanyResource
+
+          belongs_to :depot, AshPostgresBelongsToIndex.Test.Support.TestResources.DepotResource
+        end
+      end
+
+      dsl_state = MultitenantWithNonAllTenantsIndex.spark_dsl_config()
+      {:ok, transformed_state} = Transformer.transform(dsl_state)
+
+      custom_indexes =
+        DslTransformer.get_entities(transformed_state, [:postgres, :custom_indexes])
+
+      # The user-defined `index [:depot_id]` (without all_tenants?) will effectively be
+      # [:company_id, :depot_id] in the database due to tenant prefixing.
+      # So the plugin should STILL create a single-column [:depot_id] with all_tenants?: true
+      depot_single_index =
+        Enum.find(custom_indexes, fn idx ->
+          idx.fields == [:depot_id] && idx.all_tenants? == true
+        end)
+
+      assert depot_single_index != nil
+    end
+
+    test "recognizes non-all_tenants index as effective composite and does not duplicate it" do
+      defmodule MultitenantWithEffectiveComposite do
+        use Ash.Resource,
+          domain: nil,
+          data_layer: AshPostgres.DataLayer,
+          extensions: [AshPostgresBelongsToIndex],
+          validate_domain_inclusion?: false
+
+        postgres do
+          table "mt_with_effective_composite"
+          repo AshPostgresBelongsToIndex.Test.Support.TestResources.TestRepo
+
+          custom_indexes do
+            index [:depot_id]
+          end
+
+          references do
+            reference :depot, on_delete: :delete
+          end
+        end
+
+        multitenancy do
+          strategy :attribute
+          attribute :company_id
+        end
+
+        attributes do
+          uuid_primary_key :id
+        end
+
+        relationships do
+          belongs_to :company,
+                     AshPostgresBelongsToIndex.Test.Support.TestResources.CompanyResource
+
+          belongs_to :depot, AshPostgresBelongsToIndex.Test.Support.TestResources.DepotResource
+        end
+      end
+
+      dsl_state = MultitenantWithEffectiveComposite.spark_dsl_config()
+      {:ok, transformed_state} = Transformer.transform(dsl_state)
+
+      custom_indexes =
+        DslTransformer.get_entities(transformed_state, [:postgres, :custom_indexes])
+
+      # The user-defined `index [:depot_id]` (without all_tenants?) effectively creates
+      # [:company_id, :depot_id] in the DB. The plugin should NOT create a duplicate
+      # explicit composite [:company_id, :depot_id] index.
+      explicit_composite =
+        Enum.find(custom_indexes, fn idx ->
+          idx.fields == [:company_id, :depot_id]
+        end)
+
+      assert explicit_composite == nil
+
+      # Should still create single-column [:depot_id] with all_tenants?: true
+      depot_single =
+        Enum.find(custom_indexes, fn idx ->
+          idx.fields == [:depot_id] && idx.all_tenants? == true
+        end)
+
+      assert depot_single != nil
+    end
+
+    test "composite index added via manual-ref path has all_tenants? true" do
+      defmodule MultitenantManualRefComposite do
+        use Ash.Resource,
+          domain: nil,
+          data_layer: AshPostgres.DataLayer,
+          extensions: [AshPostgresBelongsToIndex],
+          validate_domain_inclusion?: false
+
+        postgres do
+          table "mt_manual_ref_composite"
+          repo AshPostgresBelongsToIndex.Test.Support.TestResources.TestRepo
+
+          references do
+            reference :user, on_delete: :nilify
+          end
+        end
+
+        multitenancy do
+          strategy :attribute
+          attribute :company_id
+        end
+
+        attributes do
+          uuid_primary_key :id
+        end
+
+        relationships do
+          belongs_to :company,
+                     AshPostgresBelongsToIndex.Test.Support.TestResources.CompanyResource
+
+          belongs_to :user, AshPostgresBelongsToIndex.Test.Support.TestResources.UserResource
+        end
+      end
+
+      dsl_state = MultitenantManualRefComposite.spark_dsl_config()
+      {:ok, transformed_state} = Transformer.transform(dsl_state)
+
+      custom_indexes =
+        DslTransformer.get_entities(transformed_state, [:postgres, :custom_indexes])
+
+      # The plugin creates composite [:company_id, :user_id] via manual-ref path.
+      # It should have all_tenants?: true to prevent Ash from double-prefixing.
+      composite_index =
+        Enum.find(custom_indexes, fn idx ->
+          idx.fields == [:company_id, :user_id]
+        end)
+
+      assert composite_index != nil
+      assert composite_index.all_tenants? == true
     end
   end
 
