@@ -155,15 +155,23 @@ defmodule AshPostgresBelongsToIndex.TransformerTest do
 
       references = DslTransformer.get_entities(transformed_state, [:postgres, :references])
 
-      # Company should NOT get any index because its FK is the same as tenant attribute
-      # (the belongs_to :company would use company_id, which is also the tenant attribute)
+      # Company should NOT get a separate single-column index because the indexed
+      # references for user and depot already create indexes starting with company_id
+      # (e.g., [:company_id, :user_id]) which can satisfy FK lookups via leftmost prefix.
       company_index =
         Enum.find(custom_indexes, fn index ->
-          index.fields == [:company_id] or index.fields == [:company_id, :company_id]
+          index.fields == [:company_id]
         end)
 
-      # Company should be filtered out by get_belongs_toes since source_attribute == multitenant_attr
       assert company_index == nil
+
+      # Should NOT create redundant composite index [:company_id, :company_id]
+      redundant_company_index =
+        Enum.find(custom_indexes, fn index ->
+          index.fields == [:company_id, :company_id]
+        end)
+
+      assert redundant_company_index == nil
 
       # User and depot should get indexed references (no manual refs)
       user_ref = Enum.find(references, &(&1.relationship == :user))
@@ -422,16 +430,20 @@ defmodule AshPostgresBelongsToIndex.TransformerTest do
       assert user_ref.index? == true
       assert depot_ref.index? == true
 
-      # Company relationship should be filtered out (company_id == tenant attribute)
+      # Company relationship should NOT get an indexed reference (source_attr == tenant_attr)
       company_ref = Enum.find(references, &(&1.relationship == :company))
       assert company_ref == nil
 
-      # Should create single-column custom indexes for multitenant FK enforcement
+      # Should create single-column custom indexes for user and depot only.
+      # Company does NOT need a separate index because the user/depot indexed references
+      # already create indexes starting with company_id (leftmost prefix rule).
       assert length(custom_indexes) == 2
 
+      company_single_index = Enum.find(custom_indexes, &(&1.fields == [:company_id]))
       user_single_index = Enum.find(custom_indexes, &(&1.fields == [:user_id]))
       depot_single_index = Enum.find(custom_indexes, &(&1.fields == [:depot_id]))
 
+      assert company_single_index == nil
       assert user_single_index != nil
       assert depot_single_index != nil
 
@@ -469,13 +481,22 @@ defmodule AshPostgresBelongsToIndex.TransformerTest do
       assert user_single_index.all_tenants? == true
       assert depot_single_index.all_tenants? == true
 
-      # Company should be filtered out (company_id == tenant attribute)
-      company_index =
+      # Company should NOT get a separate single-column index because other
+      # relationships create indexes starting with company_id (leftmost prefix rule)
+      company_single_index =
         Enum.find(custom_indexes, fn index ->
-          index.fields == [:company_id] or index.fields == [:company_id, :company_id]
+          index.fields == [:company_id]
         end)
 
-      assert company_index == nil
+      assert company_single_index == nil
+
+      # Should NOT create redundant composite index [:company_id, :company_id]
+      redundant_company_index =
+        Enum.find(custom_indexes, fn index ->
+          index.fields == [:company_id, :company_id]
+        end)
+
+      assert redundant_company_index == nil
     end
 
     test "verifies composite index structure for multitenant resources" do
@@ -665,6 +686,57 @@ defmodule AshPostgresBelongsToIndex.TransformerTest do
 
       assert composite_index != nil
       refute composite_index.all_tenants?
+    end
+  end
+
+  describe "company-only resources" do
+    test "creates single-column company_id index when no other relationships exist" do
+      # This tests resources like custom_zones and pods that ONLY have belongs_to :company
+      # Since there are no other relationships to create indexed references,
+      # we need an explicit [:company_id] index for FK enforcement.
+      defmodule CompanyOnlyResource do
+        use Ash.Resource,
+          domain: nil,
+          data_layer: AshPostgres.DataLayer,
+          extensions: [AshPostgresBelongsToIndex],
+          validate_domain_inclusion?: false
+
+        postgres do
+          table "company_only_resource"
+          repo AshPostgresBelongsToIndex.Test.Support.TestResources.TestRepo
+        end
+
+        multitenancy do
+          strategy :attribute
+          attribute :company_id
+        end
+
+        attributes do
+          uuid_primary_key :id
+          attribute :name, :string
+        end
+
+        relationships do
+          belongs_to :company,
+                     AshPostgresBelongsToIndex.Test.Support.TestResources.CompanyResource
+        end
+      end
+
+      dsl_state = CompanyOnlyResource.spark_dsl_config()
+      {:ok, transformed_state} = Transformer.transform(dsl_state)
+
+      custom_indexes =
+        DslTransformer.get_entities(transformed_state, [:postgres, :custom_indexes])
+
+      references = DslTransformer.get_entities(transformed_state, [:postgres, :references])
+
+      # No indexed references should be created (company relationship skips composite)
+      assert Enum.empty?(references)
+
+      # SHOULD create single-column [:company_id] index because no other index covers it
+      company_index = Enum.find(custom_indexes, &(&1.fields == [:company_id]))
+      assert company_index != nil
+      assert company_index.all_tenants? == true
     end
   end
 

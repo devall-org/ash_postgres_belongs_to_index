@@ -21,12 +21,10 @@ defmodule AshPostgresBelongsToIndex.Transformer do
   end
 
   def get_belongs_toes(dsl_state) do
-    multitenant_attr = dsl_state |> Transformer.get_option([:multitenancy], :attribute)
-
     dsl_state
     |> Transformer.get_entities([:relationships])
     |> Enum.filter(fn
-      %BelongsTo{source_attribute: source_attribute} -> source_attribute != multitenant_attr
+      %BelongsTo{} -> true
       %{} -> false
     end)
   end
@@ -90,22 +88,39 @@ defmodule AshPostgresBelongsToIndex.Transformer do
   end
 
   defp add_missing_indexes(belongs_tos, dsl_state, manual_references, multitenant_attr) do
-    Enum.reduce(belongs_tos, dsl_state, fn belongs_to, acc_dsl_state ->
-      add_index_for_relationship(belongs_to, acc_dsl_state, manual_references, multitenant_attr)
+    # First pass: add composite indexes for non-tenant relationships
+    dsl_state =
+      Enum.reduce(belongs_tos, dsl_state, fn belongs_to, acc ->
+        add_composite_index_for_relationship(belongs_to, acc, manual_references, multitenant_attr)
+      end)
+
+    # Second pass: add single-column indexes where needed
+    Enum.reduce(belongs_tos, dsl_state, fn belongs_to, acc ->
+      add_single_column_index_for_relationship(belongs_to, acc, multitenant_attr)
     end)
   end
 
-  defp add_index_for_relationship(
+  defp add_composite_index_for_relationship(
          %BelongsTo{name: name, source_attribute: source_attr},
          dsl_state,
          manual_references,
          multitenant_attr
        ) do
-    has_manual_ref = has_manual_reference?(name, manual_references)
+    # Skip composite index if source_attr == tenant_attr (would be redundant [:company_id, :company_id])
+    if source_attr == multitenant_attr do
+      dsl_state
+    else
+      has_manual_ref = has_manual_reference?(name, manual_references)
+      ensure_composite_index(dsl_state, name, source_attr, multitenant_attr, has_manual_ref, manual_references)
+    end
+  end
 
-    dsl_state
-    |> ensure_composite_index(name, source_attr, multitenant_attr, has_manual_ref, manual_references)
-    |> ensure_single_column_index(source_attr, multitenant_attr)
+  defp add_single_column_index_for_relationship(
+         %BelongsTo{source_attribute: source_attr},
+         dsl_state,
+         multitenant_attr
+       ) do
+    ensure_single_column_index(dsl_state, source_attr, multitenant_attr)
   end
 
   defp ensure_composite_index(
@@ -135,10 +150,40 @@ defmodule AshPostgresBelongsToIndex.Transformer do
   defp ensure_single_column_index(dsl_state, _source_attr, nil), do: dsl_state
 
   defp ensure_single_column_index(dsl_state, source_attr, tenant_attr) do
-    if has_custom_index_on?(dsl_state, [source_attr], tenant_attr) do
+    # Only create single-column index if no existing index covers this column
+    # as the leftmost field (which can satisfy FK lookups via prefix rule)
+    if has_index_starting_with?(dsl_state, source_attr, tenant_attr) do
       dsl_state
     else
       add_custom_index(dsl_state, [source_attr], all_tenants?: true)
+    end
+  end
+
+  defp has_index_starting_with?(dsl_state, field, multitenant_attr) do
+    has_custom_index_starting_with?(dsl_state, field, multitenant_attr) ||
+      has_indexed_reference_starting_with?(dsl_state, field, multitenant_attr)
+  end
+
+  defp has_custom_index_starting_with?(dsl_state, field, multitenant_attr) do
+    dsl_state
+    |> Transformer.get_entities([:postgres, :custom_indexes])
+    |> Enum.any?(fn idx ->
+      effective_fields = effective_index_fields(idx, multitenant_attr)
+      List.first(effective_fields) == field
+    end)
+  end
+
+  defp has_indexed_reference_starting_with?(dsl_state, field, multitenant_attr) do
+    # Indexed references create composite indexes starting with tenant_attr (if multitenant)
+    # or with the FK column (if non-multitenant)
+    case multitenant_attr do
+      nil -> false
+      tenant_attr ->
+        # If looking for tenant_attr and there's any indexed reference, it will start with tenant_attr
+        field == tenant_attr &&
+          dsl_state
+          |> Transformer.get_entities([:postgres, :references])
+          |> Enum.any?(& &1.index?)
     end
   end
 
