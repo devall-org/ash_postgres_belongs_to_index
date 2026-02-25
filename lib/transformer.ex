@@ -85,7 +85,7 @@ defmodule AshPostgresBelongsToIndex.Transformer do
     case {multitenant_attr, idx.all_tenants?} do
       {nil, _} -> fields
       {_, true} -> fields
-      {tenant_attr, _} -> [tenant_attr | fields]
+      {tenant_attr, _} -> Enum.uniq([tenant_attr | fields])
     end
   end
 
@@ -126,12 +126,8 @@ defmodule AshPostgresBelongsToIndex.Transformer do
       dsl_state
     else
       case has_manual_ref do
-        true ->
-          opts = if multitenant_attr, do: [all_tenants?: true], else: []
-          add_custom_index(dsl_state, composite_fields, opts)
-
-        false ->
-          add_indexed_reference(dsl_state, name)
+        true -> add_custom_index(dsl_state, composite_fields, [])
+        false -> add_indexed_reference(dsl_state, name)
       end
     end
   end

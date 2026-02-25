@@ -458,7 +458,6 @@ defmodule AshPostgresBelongsToIndex.TransformerTest do
       # Should create composite custom index for user (has manual ref but no index?)
       user_composite_index = Enum.find(custom_indexes, &(&1.fields == [:company_id, :user_id]))
       assert user_composite_index != nil
-      assert user_composite_index.all_tenants? == true
 
       # Should also create single-column custom indexes for multitenant FK enforcement
       user_single_index = Enum.find(custom_indexes, &(&1.fields == [:user_id]))
@@ -493,7 +492,6 @@ defmodule AshPostgresBelongsToIndex.TransformerTest do
       user_index = Enum.find(custom_indexes, &(&1.fields == [:company_id, :user_id]))
       assert user_index != nil
       assert user_index.fields == [:company_id, :user_id]
-      assert user_index.all_tenants? == true
 
       # Should also create single-column indexes for multitenant FK enforcement
       simple_user_index = Enum.find(custom_indexes, &(&1.fields == [:user_id]))
@@ -617,7 +615,7 @@ defmodule AshPostgresBelongsToIndex.TransformerTest do
       assert depot_single != nil
     end
 
-    test "composite index added via manual-ref path has all_tenants? true" do
+    test "composite index added via manual-ref path does not set all_tenants?" do
       defmodule MultitenantManualRefComposite do
         use Ash.Resource,
           domain: nil,
@@ -658,14 +656,15 @@ defmodule AshPostgresBelongsToIndex.TransformerTest do
         DslTransformer.get_entities(transformed_state, [:postgres, :custom_indexes])
 
       # The plugin creates composite [:company_id, :user_id] via manual-ref path.
-      # It should have all_tenants?: true to prevent Ash from double-prefixing.
+      # It does NOT set all_tenants? because Enum.uniq in index_keys already
+      # prevents double-prefixing. Not setting it avoids snapshot diff noise.
       composite_index =
         Enum.find(custom_indexes, fn idx ->
           idx.fields == [:company_id, :user_id]
         end)
 
       assert composite_index != nil
-      assert composite_index.all_tenants? == true
+      refute composite_index.all_tenants?
     end
   end
 
