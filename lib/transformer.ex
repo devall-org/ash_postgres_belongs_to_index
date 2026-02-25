@@ -150,7 +150,7 @@ defmodule AshPostgresBelongsToIndex.Transformer do
     Enum.any?(manual_references, fn ref -> ref.relationship == relationship_name end)
   end
 
-  defp add_custom_index(dsl_state, fields, opts \\ []) do
+  defp add_custom_index(dsl_state, fields, opts) do
     {:ok, index} =
       Transformer.build_entity(
         AshPostgres.DataLayer,
