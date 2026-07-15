@@ -9,7 +9,7 @@ Add `ash_postgres_belongs_to_index` to your list of dependencies in `mix.exs`:
 ```elixir
 def deps do
   [
-    {:ash_postgres_belongs_to_index, "~> 0.4.0"}
+    {:ash_postgres_belongs_to_index, "~> 0.5.0"}
   ]
 end
 ```
@@ -38,15 +38,19 @@ defmodule Post do
 end
 ```
 
-For the example above, the following index will be generated:
+For the example above, the following index will be generated. Nullable references use partial
+indexes (`index_where: :not_nil`) that exclude `NULL` values:
 
 ```elixir
 postgres do
   references do
-    reference :user, index?: true
+    reference :user, index?: true, index_where: :not_nil
   end
 end
 ```
+
+Relationships configured with `allow_nil? false` use a full reference index instead. Indexes
+added via `custom_indexes` (see below) get the equivalent `where: "user_id IS NOT NULL"`.
 
 ## Conflict detection
 
