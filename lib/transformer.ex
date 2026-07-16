@@ -15,7 +15,6 @@ defmodule AshPostgresBelongsToIndex.Transformer do
     dsl_state
     |> get_belongs_toes()
     |> reject_excluded_relationships(except_list)
-    |> reject_already_indexed_relationships(dsl_state, manual_references, multitenant_attr)
     |> add_missing_indexes(dsl_state, manual_references, multitenant_attr)
     |> then(&{:ok, &1})
   end
@@ -33,40 +32,6 @@ defmodule AshPostgresBelongsToIndex.Transformer do
     Enum.reject(belongs_tos, fn %BelongsTo{name: name} -> name in except_list end)
   end
 
-  defp reject_already_indexed_relationships(
-         belongs_tos,
-         dsl_state,
-         manual_references,
-         multitenant_attr
-       ) do
-    Enum.reject(
-      belongs_tos,
-      &already_indexed?(&1, dsl_state, manual_references, multitenant_attr)
-    )
-  end
-
-  defp already_indexed?(
-         %BelongsTo{name: name, source_attribute: source_attr},
-         dsl_state,
-         manual_references,
-         multitenant_attr
-       ) do
-    has_composite =
-      has_indexed_manual_reference?(name, manual_references) ||
-        has_custom_index_on?(
-          dsl_state,
-          build_index_fields(source_attr, multitenant_attr),
-          multitenant_attr
-        )
-
-    has_single = has_custom_index_on?(dsl_state, [source_attr], multitenant_attr)
-
-    case multitenant_attr do
-      nil -> has_composite || has_single
-      _tenant_attr -> has_composite && has_single
-    end
-  end
-
   defp has_indexed_manual_reference?(relationship_name, manual_references) do
     Enum.any?(manual_references, fn ref ->
       ref.relationship == relationship_name && ref.index? == true
@@ -75,11 +40,15 @@ defmodule AshPostgresBelongsToIndex.Transformer do
 
   # A custom index covers the given fields when its effective fields start with
   # them (leftmost prefix rule), e.g. [:fk_id, :created_at] covers [:fk_id].
+  # A partial index only counts when its condition is implied by the lookups we
+  # care about: FK lookups are equality on the last field, which implies
+  # "last_field IS NOT NULL". Any other predicate may exclude matching rows.
   defp has_custom_index_on?(dsl_state, effective_fields, multitenant_attr) do
     dsl_state
     |> Transformer.get_entities([:postgres, :custom_indexes])
     |> Enum.any?(fn idx ->
-      idx |> effective_index_fields(multitenant_attr) |> List.starts_with?(effective_fields)
+      idx |> effective_index_fields(multitenant_attr) |> List.starts_with?(effective_fields) &&
+        (is_nil(idx.where) || idx.where == "#{List.last(effective_fields)} IS NOT NULL")
     end)
   end
 

@@ -54,7 +54,9 @@ Indexes are only added when the FK is not already covered:
 
 - A manual `reference :user, index?: true` is left alone.
 - A manual `reference :user, on_delete: :delete` (no `index?`) still gets an index — added via `custom_indexes`, since a relationship can only have one `reference` entity.
-- A custom index that covers the FK as its leftmost field(s) is respected, e.g. `index [:user_id, :created_at]` covers `:user_id`.
+- A custom index that covers the FK as its leftmost field(s) is respected, e.g. `index [:user_id, :created_at]` covers `:user_id`. Partial indexes (with a `where` clause) only count when the condition is the FK's own `IS NOT NULL`.
+
+Only indexes declared in the resource DSL (`custom_indexes` / `references`) are considered. Indexes created by hand-written migrations are invisible to this plugin — declare them in `custom_indexes`, or exclude the relationship via `except`, to avoid duplicates.
 
 ## Multitenancy
 

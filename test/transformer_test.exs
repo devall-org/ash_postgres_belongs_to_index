@@ -839,5 +839,81 @@ defmodule AshPostgresBelongsToIndex.TransformerTest do
                {[:user_id], true}
              ]
     end
+
+    test "partial custom index with unrelated where clause does not count as covering" do
+      defmodule PartialUnrelatedWhere do
+        use Ash.Resource,
+          domain: nil,
+          data_layer: AshPostgres.DataLayer,
+          extensions: [AshPostgresBelongsToIndex],
+          validate_domain_inclusion?: false
+
+        postgres do
+          table "partial_unrelated_where"
+          repo AshPostgresBelongsToIndex.Test.Support.TestResources.TestRepo
+
+          custom_indexes do
+            index [:company_id], where: "deleted_at IS NULL"
+          end
+        end
+
+        attributes do
+          uuid_primary_key :id
+          attribute :deleted_at, :utc_datetime_usec
+        end
+
+        relationships do
+          belongs_to :company,
+                     AshPostgresBelongsToIndex.Test.Support.TestResources.CompanyResource
+        end
+      end
+
+      dsl_state = PartialUnrelatedWhere.spark_dsl_config()
+      {:ok, transformed_state} = Transformer.transform(dsl_state)
+
+      references = DslTransformer.get_entities(transformed_state, [:postgres, :references])
+
+      # The partial index excludes rows where deleted_at is set, so it cannot
+      # serve general FK lookups — an indexed reference must still be added
+      company_ref = Enum.find(references, &(&1.relationship == :company))
+      assert company_ref.index? == true
+    end
+
+    test "partial custom index on the FK's own IS NOT NULL counts as covering" do
+      defmodule PartialNotNilWhere do
+        use Ash.Resource,
+          domain: nil,
+          data_layer: AshPostgres.DataLayer,
+          extensions: [AshPostgresBelongsToIndex],
+          validate_domain_inclusion?: false
+
+        postgres do
+          table "partial_not_nil_where"
+          repo AshPostgresBelongsToIndex.Test.Support.TestResources.TestRepo
+
+          custom_indexes do
+            index [:company_id], where: "company_id IS NOT NULL"
+          end
+        end
+
+        attributes do
+          uuid_primary_key :id
+        end
+
+        relationships do
+          belongs_to :company,
+                     AshPostgresBelongsToIndex.Test.Support.TestResources.CompanyResource
+        end
+      end
+
+      dsl_state = PartialNotNilWhere.spark_dsl_config()
+      {:ok, transformed_state} = Transformer.transform(dsl_state)
+
+      references = DslTransformer.get_entities(transformed_state, [:postgres, :references])
+
+      # FK lookups are equality on company_id, which implies IS NOT NULL,
+      # so this partial index covers them — no extra reference needed
+      assert references == []
+    end
   end
 end
