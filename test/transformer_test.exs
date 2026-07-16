@@ -740,17 +740,104 @@ defmodule AshPostgresBelongsToIndex.TransformerTest do
     end
   end
 
-  describe "helper functions" do
-    test "fk_already_indexed? detects composite indexes correctly" do
-      # This tests the private function indirectly through transformer behavior
-      # Already covered by the custom index test above
-      assert true
+  describe "covering composite custom indexes (leftmost prefix rule)" do
+    test "non-multitenant: custom index with trailing columns covers the FK" do
+      defmodule NonMtCoveringComposite do
+        use Ash.Resource,
+          domain: nil,
+          data_layer: AshPostgres.DataLayer,
+          extensions: [AshPostgresBelongsToIndex],
+          validate_domain_inclusion?: false
+
+        postgres do
+          table "non_mt_covering_composite"
+          repo AshPostgresBelongsToIndex.Test.Support.TestResources.TestRepo
+
+          custom_indexes do
+            index [:company_id, :inserted_at]
+          end
+        end
+
+        attributes do
+          uuid_primary_key :id
+          create_timestamp :inserted_at
+        end
+
+        relationships do
+          belongs_to :company,
+                     AshPostgresBelongsToIndex.Test.Support.TestResources.CompanyResource
+        end
+      end
+
+      dsl_state = NonMtCoveringComposite.spark_dsl_config()
+      {:ok, transformed_state} = Transformer.transform(dsl_state)
+
+      references = DslTransformer.get_entities(transformed_state, [:postgres, :references])
+
+      custom_indexes =
+        DslTransformer.get_entities(transformed_state, [:postgres, :custom_indexes])
+
+      # [:company_id, :inserted_at] already covers company_id lookups,
+      # so no indexed reference or extra index should be added
+      assert references == []
+      assert Enum.map(custom_indexes, & &1.fields) == [[:company_id, :inserted_at]]
     end
 
-    test "get_belongs_toes filters out multitenant attribute correctly" do
-      # This tests the belongs_to filtering logic
-      # Covered by multitenant tests above
-      assert true
+    test "multitenant: custom index with trailing columns covers the composite" do
+      defmodule MtCoveringComposite do
+        use Ash.Resource,
+          domain: nil,
+          data_layer: AshPostgres.DataLayer,
+          extensions: [AshPostgresBelongsToIndex],
+          validate_domain_inclusion?: false
+
+        postgres do
+          table "mt_covering_composite"
+          repo AshPostgresBelongsToIndex.Test.Support.TestResources.TestRepo
+
+          custom_indexes do
+            # Effectively [:company_id, :user_id, :inserted_at] due to tenant prefixing
+            index [:user_id, :inserted_at]
+          end
+        end
+
+        multitenancy do
+          strategy :attribute
+          attribute :company_id
+        end
+
+        attributes do
+          uuid_primary_key :id
+          create_timestamp :inserted_at
+        end
+
+        relationships do
+          belongs_to :company,
+                     AshPostgresBelongsToIndex.Test.Support.TestResources.CompanyResource
+
+          belongs_to :user, AshPostgresBelongsToIndex.Test.Support.TestResources.UserResource
+        end
+      end
+
+      dsl_state = MtCoveringComposite.spark_dsl_config()
+      {:ok, transformed_state} = Transformer.transform(dsl_state)
+
+      references = DslTransformer.get_entities(transformed_state, [:postgres, :references])
+
+      custom_indexes =
+        DslTransformer.get_entities(transformed_state, [:postgres, :custom_indexes])
+
+      # The effective [:company_id, :user_id, :inserted_at] covers [:company_id, :user_id],
+      # so no indexed reference should be added for user
+      assert references == []
+
+      # It also covers company_id as leftmost, so no single [:company_id] index.
+      # It does NOT cover user_id-only lookups (user_id is not leftmost),
+      # so the single-column [:user_id] all_tenants? index is still needed.
+      assert Enum.map(custom_indexes, &{&1.fields, &1.all_tenants?}) == [
+               {[:user_id, :inserted_at], false},
+               {[:user_id], true}
+             ]
     end
   end
 end

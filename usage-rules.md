@@ -51,11 +51,20 @@ defmodule MyApp.Post do
 end
 ```
 
-## Automatic Exclusions
+## Conflict Detection
 
-The following are automatically excluded:
-- Multitenant attributes (e.g., `:tenant_id`)
-- Relationships already manually defined in the `references` block
+Indexes are only added when not already covered:
+- A manual `reference` with `index?: true` counts as covered
+- A manual `reference` without `index?` is NOT skipped — the index is added via `custom_indexes` instead (since a second `reference` entity is not allowed)
+- A custom index whose leftmost fields cover the FK column counts as covered (e.g., `index [:fk_id, :created_at]` covers `:fk_id`)
+
+## Multitenancy
+
+For resources with attribute-based multitenancy, two indexes are created per FK:
+- A composite `[tenant_attr, fk_id]` index (via tenant prefixing) for tenant-scoped queries
+- A single-column `[fk_id]` index with `all_tenants?: true`, needed because FK constraint checks (e.g., deletes on the referenced table) are not tenant-scoped
+
+The tenant attribute's own `belongs_to` gets a single `[tenant_attr]` index only when no other index already starts with it.
 
 ## When to use
 

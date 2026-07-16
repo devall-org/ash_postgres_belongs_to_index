@@ -9,7 +9,7 @@ Add `ash_postgres_belongs_to_index` to your list of dependencies in `mix.exs`:
 ```elixir
 def deps do
   [
-    {:ash_postgres_belongs_to_index, "~> 0.2.0"}
+    {:ash_postgres_belongs_to_index, "~> 0.3.0"}
   ]
 end
 ```
@@ -47,6 +47,18 @@ postgres do
   end
 end
 ```
+
+## Conflict detection
+
+Indexes are only added when the FK is not already covered:
+
+- A manual `reference :user, index?: true` is left alone.
+- A manual `reference :user, on_delete: :delete` (no `index?`) still gets an index — added via `custom_indexes`, since a relationship can only have one `reference` entity.
+- A custom index that covers the FK as its leftmost field(s) is respected, e.g. `index [:user_id, :created_at]` covers `:user_id`.
+
+## Multitenancy
+
+For attribute-based multitenancy, each FK gets both a composite `[tenant_attr, fk_id]` index (for tenant-scoped queries) and a single-column `[fk_id]` index with `all_tenants?: true` (FK constraint checks are not tenant-scoped, so the composite cannot serve them).
 
 ## License
 

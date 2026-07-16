@@ -53,7 +53,11 @@ defmodule AshPostgresBelongsToIndex.Transformer do
        ) do
     has_composite =
       has_indexed_manual_reference?(name, manual_references) ||
-        has_custom_index_on?(dsl_state, build_index_fields(source_attr, multitenant_attr), multitenant_attr)
+        has_custom_index_on?(
+          dsl_state,
+          build_index_fields(source_attr, multitenant_attr),
+          multitenant_attr
+        )
 
     has_single = has_custom_index_on?(dsl_state, [source_attr], multitenant_attr)
 
@@ -69,11 +73,13 @@ defmodule AshPostgresBelongsToIndex.Transformer do
     end)
   end
 
+  # A custom index covers the given fields when its effective fields start with
+  # them (leftmost prefix rule), e.g. [:fk_id, :created_at] covers [:fk_id].
   defp has_custom_index_on?(dsl_state, effective_fields, multitenant_attr) do
     dsl_state
     |> Transformer.get_entities([:postgres, :custom_indexes])
     |> Enum.any?(fn idx ->
-      effective_index_fields(idx, multitenant_attr) == effective_fields
+      idx |> effective_index_fields(multitenant_attr) |> List.starts_with?(effective_fields)
     end)
   end
 
@@ -111,7 +117,15 @@ defmodule AshPostgresBelongsToIndex.Transformer do
       dsl_state
     else
       has_manual_ref = has_manual_reference?(name, manual_references)
-      ensure_composite_index(dsl_state, name, source_attr, multitenant_attr, has_manual_ref, manual_references)
+
+      ensure_composite_index(
+        dsl_state,
+        name,
+        source_attr,
+        multitenant_attr,
+        has_manual_ref,
+        manual_references
+      )
     end
   end
 
@@ -160,24 +174,17 @@ defmodule AshPostgresBelongsToIndex.Transformer do
   end
 
   defp has_index_starting_with?(dsl_state, field, multitenant_attr) do
-    has_custom_index_starting_with?(dsl_state, field, multitenant_attr) ||
+    has_custom_index_on?(dsl_state, [field], multitenant_attr) ||
       has_indexed_reference_starting_with?(dsl_state, field, multitenant_attr)
-  end
-
-  defp has_custom_index_starting_with?(dsl_state, field, multitenant_attr) do
-    dsl_state
-    |> Transformer.get_entities([:postgres, :custom_indexes])
-    |> Enum.any?(fn idx ->
-      effective_fields = effective_index_fields(idx, multitenant_attr)
-      List.first(effective_fields) == field
-    end)
   end
 
   defp has_indexed_reference_starting_with?(dsl_state, field, multitenant_attr) do
     # Indexed references create composite indexes starting with tenant_attr (if multitenant)
     # or with the FK column (if non-multitenant)
     case multitenant_attr do
-      nil -> false
+      nil ->
+        false
+
       tenant_attr ->
         # If looking for tenant_attr and there's any indexed reference, it will start with tenant_attr
         field == tenant_attr &&
