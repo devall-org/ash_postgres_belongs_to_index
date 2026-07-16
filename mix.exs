@@ -43,6 +43,7 @@ defmodule AshPostgresBelongsToIndex.MixProject do
     [
       name: "ash_postgres_belongs_to_index",
       licenses: ["MIT"],
+      files: ~w(lib mix.exs README.md CHANGELOG.md LICENSE usage-rules.md .formatter.exs),
       links: %{
         "GitHub" => "https://github.com/devall-org/ash_postgres_belongs_to_index"
       }
