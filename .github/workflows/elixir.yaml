@@ -40,8 +40,8 @@ jobs:
       # Specify the OTP and Elixir versions to use when building
       # and running the workflow steps.
       matrix:
-        otp: ["27.0.0.0"] # Define the OTP version [required]
-        elixir: ["1.18.0"] # Define the elixir version [required]
+        otp: ["29.0.0"] # Define the OTP version [required]
+        elixir: ["1.19.0"] # Define the elixir version [required]
     steps:
       # Step: Identity Elixir + Erlang image as the base.
       - name: Set up Elixir
@@ -52,12 +52,12 @@ jobs:
 
       # Step: Check out the code.
       - name: Checkout code
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
 
       # Step: Define how to cache deps. Restores existing cache if present.
       - name: Cache deps
         id: cache-deps
-        uses: actions/cache@v3
+        uses: actions/cache@v4
         env:
           cache-name: cache-elixir-deps
         with:
@@ -71,7 +71,7 @@ jobs:
       # project's downloaded deps every run.
       - name: Cache compiled build
         id: cache-build
-        uses: actions/cache@v3
+        uses: actions/cache@v4
         env:
           cache-name: cache-compiled-build
         with:
