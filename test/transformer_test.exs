@@ -189,6 +189,10 @@ defmodule AshPostgresBelongsToIndex.TransformerTest do
 
       assert user_single_index.all_tenants? == true
       assert depot_single_index.all_tenants? == true
+      assert user_single_index.include_base_filter? == false
+      assert depot_single_index.include_base_filter? == false
+      assert user_single_index.name == "multitenant_resource_user_id_fkey_index"
+      assert depot_single_index.name == "multitenant_resource_depot_id_fkey_index"
     end
 
     test "respects except list configuration" do
