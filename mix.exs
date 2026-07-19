@@ -31,8 +31,8 @@ defmodule AshPostgresBelongsToIndex.MixProject do
   # Run "mix help deps" to learn about dependencies.
   defp deps do
     [
-      {:ash, ">= 0.0.0"},
-      {:ash_postgres, ">= 0.0.0"},
+      {:ash, github: "ash-project/ash", branch: "main", override: true},
+      {:ash_postgres, github: "ash-project/ash_postgres", branch: "main"},
       {:spark, ">= 0.0.0"},
       {:sourceror, ">= 0.0.0", only: [:dev, :test], optional: true},
       {:ex_doc, "~> 0.29", only: :dev, runtime: false}
