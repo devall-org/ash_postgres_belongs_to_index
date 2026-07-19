@@ -155,15 +155,16 @@ defmodule AshPostgresBelongsToIndex.TransformerTest do
 
       references = DslTransformer.get_entities(transformed_state, [:postgres, :references])
 
-      # Company should NOT get a separate single-column index because the indexed
-      # references for user and depot already create indexes starting with company_id
-      # (e.g., [:company_id, :user_id]) which can satisfy FK lookups via leftmost prefix.
+      # Company DOES get a single-column index: the indexed references for user and
+      # depot are partial (index_where: :not_nil on their own FK), so they cannot
+      # serve company_id-only lookups for rows where user_id/depot_id is NULL.
       company_index =
         Enum.find(custom_indexes, fn index ->
           index.fields == [:company_id]
         end)
 
-      assert company_index == nil
+      assert company_index != nil
+      assert company_index.all_tenants? == true
 
       # Should NOT create redundant composite index [:company_id, :company_id]
       redundant_company_index =
@@ -438,21 +439,26 @@ defmodule AshPostgresBelongsToIndex.TransformerTest do
       company_ref = Enum.find(references, &(&1.relationship == :company))
       assert company_ref == nil
 
-      # Should create single-column custom indexes for user and depot only.
-      # Company does NOT need a separate index because the user/depot indexed references
-      # already create indexes starting with company_id (leftmost prefix rule).
-      assert length(custom_indexes) == 2
+      # Should create single-column custom indexes for user, depot AND company.
+      # The user/depot indexed references are partial (index_where: :not_nil), so
+      # they cannot serve company_id-only lookups — company needs its own index.
+      assert length(custom_indexes) == 3
 
       company_single_index = Enum.find(custom_indexes, &(&1.fields == [:company_id]))
       user_single_index = Enum.find(custom_indexes, &(&1.fields == [:user_id]))
       depot_single_index = Enum.find(custom_indexes, &(&1.fields == [:depot_id]))
 
-      assert company_single_index == nil
+      assert company_single_index != nil
       assert user_single_index != nil
       assert depot_single_index != nil
 
+      assert company_single_index.all_tenants? == true
       assert user_single_index.all_tenants? == true
       assert depot_single_index.all_tenants? == true
+
+      # Nullable FKs get partial single-column indexes
+      assert user_single_index.where == "user_id IS NOT NULL"
+      assert depot_single_index.where == "depot_id IS NOT NULL"
     end
 
     test "creates custom indexes for multitenant resource with manual references" do
@@ -485,14 +491,15 @@ defmodule AshPostgresBelongsToIndex.TransformerTest do
       assert user_single_index.all_tenants? == true
       assert depot_single_index.all_tenants? == true
 
-      # Company should NOT get a separate single-column index because other
-      # relationships create indexes starting with company_id (leftmost prefix rule)
+      # Company DOES get a separate single-column index: the other relationships'
+      # indexes are partial on their own FK, so they can't cover company_id-only lookups
       company_single_index =
         Enum.find(custom_indexes, fn index ->
           index.fields == [:company_id]
         end)
 
-      assert company_single_index == nil
+      assert company_single_index != nil
+      assert company_single_index.all_tenants? == true
 
       # Should NOT create redundant composite index [:company_id, :company_id]
       redundant_company_index =

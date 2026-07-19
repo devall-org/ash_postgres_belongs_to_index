@@ -24,11 +24,14 @@ This automatically generates:
 ```elixir
 postgres do
   references do
-    reference :user, index?: true
-    reference :category, index?: true
+    reference :user, index?: true, index_where: :not_nil
+    reference :category, index?: true, index_where: :not_nil
   end
 end
 ```
+
+Nullable relationships use partial indexes that exclude `NULL` values. Relationships configured
+with `allow_nil? false` use full indexes.
 
 ## Excluding Relationships
 
@@ -79,4 +82,3 @@ Generate migrations after adding the extension:
 ```bash
 mix ash.codegen add_belongs_to_indexes
 ```
-

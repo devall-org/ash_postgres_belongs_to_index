@@ -1,5 +1,30 @@
 # Changelog
 
+## 0.5.0 (2026-07-19)
+
+### Improvements
+
+- Nullable `belongs_to` relationships now use **partial indexes** that exclude
+  `NULL` rows: generated references get `index_where: :not_nil`, and indexes added
+  via `custom_indexes` get `where: "fk_id IS NOT NULL"`. FK lookups are equality
+  matches which always imply `IS NOT NULL`, so the smaller index serves them fully.
+  Relationships with `allow_nil? false` keep full indexes.
+- On multitenant resources, the tenant attribute now gets its own single-column
+  index whenever every other FK index is partial: a partial index on another FK
+  excludes rows where that FK is `NULL`, so it cannot serve tenant-only lookups.
+
+### Dependencies
+
+- Additionally requires `index_where` support on references
+  (ash-project/ash_postgres#795, not yet in a hex release — the dependency stays on
+  GitHub main).
+
+### Upgrading from 0.4.0
+
+Running `mix ash.codegen` will regenerate indexes for nullable relationships as
+partial ones (`WHERE fk_id IS NOT NULL`). This is intentional — the smaller
+indexes serve FK lookups fully.
+
 ## 0.4.0 (2026-07-19)
 
 ### Fixes
