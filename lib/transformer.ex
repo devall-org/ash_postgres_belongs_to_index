@@ -138,7 +138,11 @@ defmodule AshPostgresBelongsToIndex.Transformer do
     if has_index_starting_with?(dsl_state, source_attr, tenant_attr) do
       dsl_state
     else
-      add_custom_index(dsl_state, [source_attr], all_tenants?: true)
+      add_custom_index(dsl_state, [source_attr],
+        all_tenants?: true,
+        include_base_filter?: false,
+        name: foreign_key_index_name(dsl_state, source_attr)
+      )
     end
   end
 
@@ -194,4 +198,9 @@ defmodule AshPostgresBelongsToIndex.Transformer do
 
   defp build_index_fields(source_attr, nil), do: [source_attr]
   defp build_index_fields(source_attr, tenant_attr), do: [tenant_attr, source_attr]
+
+  defp foreign_key_index_name(dsl_state, source_attr) do
+    table = Transformer.get_option(dsl_state, [:postgres], :table)
+    "#{table}_#{source_attr}_fkey_index"
+  end
 end

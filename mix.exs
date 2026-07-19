@@ -4,7 +4,7 @@ defmodule AshPostgresBelongsToIndex.MixProject do
   def project do
     [
       app: :ash_postgres_belongs_to_index,
-      version: "0.3.0",
+      version: "0.4.0",
       elixir: "~> 1.17",
       consolidate_protocols: Mix.env() not in [:dev, :test],
       start_permanent: Mix.env() == :prod,
@@ -31,8 +31,8 @@ defmodule AshPostgresBelongsToIndex.MixProject do
   # Run "mix help deps" to learn about dependencies.
   defp deps do
     [
-      {:ash, ">= 0.0.0"},
-      {:ash_postgres, ">= 0.0.0"},
+      {:ash, github: "ash-project/ash", branch: "main", override: true},
+      {:ash_postgres, github: "ash-project/ash_postgres", branch: "main"},
       {:spark, ">= 0.0.0"},
       {:sourceror, ">= 0.0.0", only: [:dev, :test], optional: true},
       {:ex_doc, "~> 0.29", only: :dev, runtime: false}

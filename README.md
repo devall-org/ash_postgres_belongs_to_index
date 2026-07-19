@@ -9,7 +9,7 @@ Add `ash_postgres_belongs_to_index` to your list of dependencies in `mix.exs`:
 ```elixir
 def deps do
   [
-    {:ash_postgres_belongs_to_index, "~> 0.3.0"}
+    {:ash_postgres_belongs_to_index, "~> 0.4.0"}
   ]
 end
 ```
@@ -61,6 +61,8 @@ Only indexes declared in the resource DSL (`custom_indexes` / `references`) are 
 ## Multitenancy
 
 For attribute-based multitenancy, each FK gets both a composite `[tenant_attr, fk_id]` index (for tenant-scoped queries) and a single-column `[fk_id]` index with `all_tenants?: true` (FK constraint checks are not tenant-scoped, so the composite cannot serve them).
+
+The single-column index is named `{table}_{fk_id}_fkey_index` and is created with `include_base_filter?: false`: FK constraint checks must see all rows, so the resource's `base_filter` is deliberately not applied to it.
 
 ## License
 
