@@ -1,5 +1,29 @@
 # Changelog
 
+## 0.4.0 (2026-07-19)
+
+### Fixes
+
+- The single-column `[fk_id]` index on multitenant resources is now generated with
+  `include_base_filter?: false`. Previously, a resource `base_filter` (e.g.
+  `deleted_at IS NULL`) was baked into the index as a `WHERE` clause, making it
+  partial — but FK constraint checks (e.g. deletes on the referenced table) must see
+  **all** rows, so such an index could not serve them.
+- That index now gets a stable name, `{table}_{fk_id}_fkey_index`, instead of the
+  default derived name.
+
+### Dependencies
+
+- Requires `ash_postgres` with `include_base_filter?` support for custom indexes
+  (ash-project/ash_postgres#796, not yet in a hex release — currently GitHub main).
+
+### Upgrading from 0.3.x
+
+On multitenant resources with a `base_filter`, running `mix ash.codegen` will
+regenerate the single-column FK indexes without the base filter (and with the new
+name). This is intentional — the filtered indexes could not back FK constraint
+checks.
+
 ## 0.3.0 (2026-07-16)
 
 ### Breaking / behavior changes
